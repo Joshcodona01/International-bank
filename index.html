@@ -43,7 +43,7 @@
 </section>
 
 <main>
-  <div class="notice">🌐 <strong>Fictional Minecraft roleplay only:</strong> International Bank is a pretend in-game ledger. It does not connect to real banks or move real money. Data is saved in this browser on this device. Fictional rates: International = $1.00 base; VDM = $1.75 base; Euro = €0.89 base.</div>
+  <div class="notice">🌐 <strong>Fictional Minecraft roleplay only:</strong> International Bank is a pretend in-game ledger. It does not connect to real banks or move real money. Shared online roleplay ledger. Anyone with access can create accounts, change funds, transfer money, and delete accounts. Fictional rates: International = $1.00 base; VDM = $1.75 base; Euro = €0.89 base.</div>
 
   <section class="page active" id="page-home">
     <div class="cards">
@@ -105,7 +105,7 @@
       </article>
       <article class="card">
         <div class="card-head"><div class="icon purple">▣</div><h2>Account list</h2></div>
-        <p class="sub">All accounts created in this browser.</p>
+        <p class="sub">All shared accounts.</p>
         <div class="account-list" id="accountList"></div>
         <div class="empty" id="noAccounts"><div class="big">🧭</div>No accounts yet. Create one to get started.</div>
       </article>
@@ -115,7 +115,7 @@
   <section class="page" id="page-transactions">
     <article class="card">
       <div class="card-head"><div class="icon purple">▣</div><div><h2>Transaction history</h2><p class="sub" style="margin:3px 0 0">A running log of account activity.</p></div></div>
-      <div class="two" style="margin:14px 0"><div class="field"><label for="transactionAccount">Filter by account</label><select id="transactionAccount"><option value="">All accounts</option></select></div><div class="field"><label for="transactionType">Filter by type</label><select id="transactionType"><option value="">All activity</option><option value="deposit">Deposits</option><option value="withdraw">Withdrawals</option><option value="transfer-in">Transfers received</option><option value="transfer-out">Transfers sent</option><option value="created">Account created</option></select></div></div>
+      <div class="two" style="margin:14px 0"><div class="field"><label for="transactionAccount">Filter by account</label><select id="transactionAccount"><option value="">All accounts</option></select></div><div class="field"><label for="transactionType">Filter by type</label><select id="transactionType"><option value="">All activity</option><option value="deposit">Deposits</option><option value="withdrawal">Withdrawals</option><option value="transfer-in">Transfers received</option><option value="transfer-out">Transfers sent</option><option value="created">Account created</option></select></div></div>
       <div class="table-wrap"><table><thead><tr><th>Date &amp; time</th><th>Account</th><th>Type</th><th>Description</th><th>Amount</th><th>Balance after</th></tr></thead><tbody id="transactionRows"></tbody></table><div class="empty" id="emptyTransactions"><div class="big">📜</div>No transactions match your filters.</div></div>
       <div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn secondary" id="exportBtn">↓ Export CSV</button></div>
     </article>
@@ -124,97 +124,53 @@
 
 <footer><div><div class="brand"><span class="grass">🌐</span><span>International <span class="green">Bank</span></span></div><small>Banking for a stronger Minecraft community.</small></div><div><small>© 2026 International Bank · Fan-made Minecraft roleplay tool · Not affiliated with Mojang or Microsoft.</small></div></footer>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (() => {
-  const $ = id => document.getElementById(id);
-  const CURRENCIES = {INT:{name:'International',symbol:'$',rate:1},VDM:{name:'VDM',symbol:'$',rate:1.75},EUR:{name:'Euro',symbol:'€',rate:0.89}};
-  const money = (n, code='INT') => (CURRENCIES[code]?.symbol || '$') + (Number(n)||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ' + (CURRENCIES[code]?.name || 'International');
-  const toInternational = (amount, code) => Number(amount) / (CURRENCIES[code]?.rate || 1);
-  const fromInternational = (amount, code) => Number(amount) * (CURRENCIES[code]?.rate || 1);
-  const safe = s => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const STORAGE = 'international-bank-demo-v1';
-  let state = {accounts:[], transactions:[]}, action = 'deposit';
-  try { const saved = JSON.parse(localStorage.getItem(STORAGE)); if(saved && Array.isArray(saved.accounts) && Array.isArray(saved.transactions)) state = saved; } catch(e) {}
-  function persist(){ try{localStorage.setItem(STORAGE,JSON.stringify(state));}catch(e){toast('Could not save to browser storage. Export your transactions as a backup.');} }
-  function toast(message){const t=$('toast');t.textContent=message;t.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove('show'),2800);}
-  function account(id){return state.accounts.find(a=>a.id===id);}
-  function selectedManage(){return account($('manageAccount').value);}
-  function addTransaction(acc,type,amount,description,balanceAfter,related=''){
-    state.transactions.unshift({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),date:new Date().toISOString(),accountId:acc.id,accountName:acc.name,type,amount:Number(amount),description,balanceAfter:Number(balanceAfter),related});
-  }
-  function go(page){document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+page));document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===page));$('hero').style.display=page==='home'?'block':'none';window.scrollTo({top:0,behavior:'smooth'});if(page==='transactions')renderTransactions();}
-  document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.page)));
-  document.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.goto)));
-  $('themeBtn').addEventListener('click',()=>{document.body.classList.toggle('light');$('themeBtn').textContent=document.body.classList.contains('light')?'☀':'☾';});
-  function createAccount(name,owner,deposit,currency='INT'){
-    name=name.trim();owner=owner.trim();deposit=Number(deposit);
-    if(!name||!owner||!Number.isFinite(deposit)||deposit<0||deposit>1e9){toast('Please enter valid account details and a non-negative deposit.');return false;}
-    if(state.accounts.some(a=>a.name.toLowerCase()===name.toLowerCase())){toast('An account with that name already exists.');return false;}
-    const a={id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),name,owner,currency,balance:Math.round(deposit*100)/100,created:new Date().toISOString()};
-    state.accounts.push(a);addTransaction(a,'created',0,'Account opened',a.balance);
-    if(deposit>0)addTransaction(a,'deposit',deposit,'Initial deposit',a.balance);
-    persist();render();$('homeAccount').value=a.id;$('manageAccount').value=a.id;updateSelected();toast('Account created successfully!');return true;
-  }
-  function attachCreate(form,nameId,ownerId,depositId){$(form).addEventListener('submit',e=>{e.preventDefault();const currencyId=form==='createForm'?'newCurrency':'newCurrency2';if(createAccount($(nameId).value,$(ownerId).value,$(depositId).value,$(currencyId).value)){e.target.reset();$(depositId).value='0.00';if(form==='createForm2')go('manage');}});}
-  attachCreate('createForm','newName','newOwner','newDeposit');attachCreate('createForm2','newName2','newOwner2','newDeposit2');
-  function fillSelect(id,placeholder,includeAll=false){
-    const el=$(id),previous=el.value;el.innerHTML='';
-    const first=document.createElement('option');first.value='';first.textContent=placeholder;el.appendChild(first);
-    state.accounts.forEach(a=>{const o=document.createElement('option');o.value=a.id;o.textContent=a.name+' — '+a.owner;el.appendChild(o);});
-    if(state.accounts.some(a=>a.id===previous))el.value=previous;
-  }
-  function render(){
-    ['homeAccount','manageAccount','recipient','transactionAccount'].forEach(id=>{
-      const val=$(id).value;let placeholder=id==='transactionAccount'?'All accounts':id==='recipient'?'— Choose recipient —':'— Choose an account —';
-      const el=$(id);el.innerHTML='';const first=document.createElement('option');first.value='';first.textContent=placeholder;el.appendChild(first);
-      state.accounts.forEach(a=>{const o=document.createElement('option');o.value=a.id;o.textContent=a.name+' — '+a.owner;el.appendChild(o);});
-      if(state.accounts.some(a=>a.id===val))el.value=val;
-    });
-    $('statAccounts').textContent=state.accounts.length;$('statTransactions').textContent=state.transactions.length;
-    const list=$('accountList');list.innerHTML='';$('noAccounts').style.display=state.accounts.length?'none':'block';
-    state.accounts.forEach(a=>{const tile=document.createElement('div');tile.className='account-tile';tile.innerHTML='<div><h3>'+safe(a.name)+'</h3><div class="muted">'+safe(a.owner)+'</div><div class="balance">'+money(a.balance,a.currency)+'</div></div><button class="btn secondary" data-select="'+safe(a.id)+'">Open</button>';list.appendChild(tile);});
-    list.querySelectorAll('[data-select]').forEach(b=>b.addEventListener('click',()=>{$('manageAccount').value=b.dataset.select;updateSelected();go('manage');}));
-    updateSelected();renderTransactions();
-  }
-  function updateSelected(){
-    const a=selectedManage(),h=account($('homeAccount').value);
-    $('manageName').textContent=a?a.name:'No account selected';$('manageOwner').textContent=a?'Owner: '+a.owner:'—';$('manageBalance').textContent=money(a?a.balance:0,a?a.currency:'INT');
-    $('homeAccountName').textContent=h?h.name:'No account selected';$('homeOwner').textContent=h?'Owner: '+h.owner:'Choose an account above';$('homeBalance').textContent=money(h?h.balance:0,h?h.currency:'INT');
-    [...$('recipient').options].forEach(o=>{o.disabled=!!a&&o.value===a.id;});
-  }
-  $('homeAccount').addEventListener('change',updateSelected);$('manageAccount').addEventListener('change',updateSelected);
-  document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>{action=b.dataset.action;document.querySelectorAll('[data-action]').forEach(x=>x.classList.toggle('active',x===b));$('recipientField').hidden=action!=='transfer';$('fundSubmit').textContent=action==='deposit'?'＋ Add Funds':action==='withdraw'?'－ Remove Funds':'↔ Transfer Funds';$('fundSubmit').className='btn wide '+(action==='withdraw'?'danger':'primary');}));
-  $('fundForm').addEventListener('submit',e=>{
-    e.preventDefault();const a=selectedManage(),amount=Math.round(Number($('fundAmount').value)*100)/100,note=$('fundNote').value.trim();
-    if(!a){toast('Select an account first.');return;}if(!Number.isFinite(amount)||amount<=0||amount>1e9){toast('Enter an amount greater than £0.00.');return;}
-    const description=note||({deposit:'Funds added',withdraw:'Funds removed',transfer:'Account transfer'}[action]);
-    if(action==='deposit'){a.balance=Math.round((a.balance+amount)*100)/100;addTransaction(a,'deposit',amount,description,a.balance);}
-    else if(action==='withdraw'){if(a.balance<amount){toast('Insufficient funds in this account.');return;}a.balance=Math.round((a.balance-amount)*100)/100;addTransaction(a,'withdraw',-amount,description,a.balance);}
-    else {
-      const to=account($('recipient').value);if(!to){toast('Choose a recipient account.');return;}if(to.id===a.id){toast('Choose a different recipient account.');return;}if(a.balance<amount){toast('Insufficient funds for this transfer.');return;}
-      const received=Math.round(fromInternational(toInternational(amount,a.currency),to.currency)*100)/100;
-      a.balance=Math.round((a.balance-amount)*100)/100;to.balance=Math.round((to.balance+received)*100)/100;
-      addTransaction(a,'transfer-out',-amount,'Transfer to '+to.name+(note?' — '+note:''),a.balance,to.id);
-      addTransaction(to,'transfer-in',received,'Transfer from '+a.name+(note?' — '+note:'')+' (converted)',to.balance,a.id);
-    }
-    persist();render();$('manageAccount').value=a.id;updateSelected();$('fundAmount').value='';$('fundNote').value='';toast(action==='deposit'?'Funds added.':action==='withdraw'?'Funds removed.':'Transfer completed.');
-  });
-  $('transactionAccount').addEventListener('change',renderTransactions);$('transactionType').addEventListener('change',renderTransactions);
-  const typeLabel=t=>({'deposit':'Deposit','withdraw':'Withdrawal','transfer-in':'Transfer received','transfer-out':'Transfer sent','created':'Account opened'}[t]||t);
-  function renderTransactions(){
-    if(!$('transactionRows'))return;
-    const aid=$('transactionAccount').value,type=$('transactionType').value;
-    const rows=state.transactions.filter(t=>(!aid||t.accountId===aid)&&(!type||t.type===type));
-    $('transactionRows').innerHTML='';$('emptyTransactions').style.display=rows.length?'none':'block';
-    rows.forEach(t=>{const tr=document.createElement('tr');const date=new Date(t.date);const amountClass=t.amount>0?'positive':t.amount<0?'negative':'';tr.innerHTML='<td>'+safe(date.toLocaleString('en-GB'))+'</td><td>'+safe(t.accountName)+'</td><td>'+safe(typeLabel(t.type))+'</td><td>'+safe(t.description)+'</td><td class="'+amountClass+'">'+(t.amount>0?'+':t.amount<0?'−':'')+money(Math.abs(t.amount),account(t.accountId)?.currency||'INT')+'</td><td>'+money(t.balanceAfter,account(t.accountId)?.currency||'INT')+'</td>'; $('transactionRows').appendChild(tr);});
-  }
-  $('exportBtn').addEventListener('click',()=>{
-    const headers=['Date & time','Account','Type','Description','Amount in account currency','Balance after'];
-    const rows=state.transactions.map(t=>[new Date(t.date).toLocaleString('en-GB'),t.accountName,typeLabel(t.type),t.description,t.amount.toFixed(2),t.balanceAfter.toFixed(2)]);
-    const csv=[headers,...rows].map(row=>row.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
-    const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='international-bank-transactions.csv';link.click();URL.revokeObjectURL(url);
-  });
-  render();
+const SUPABASE_URL="https://osxplxlnrxgfjxupkaox.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_weouAxrexDytaUecvqMszg_mLQ2LhHw";
+const $=id=>document.getElementById(id);
+const C={INT:{name:"International",symbol:"$",rate:1},VDM:{name:"VDM",symbol:"$",rate:1.75},EUR:{name:"Euro",symbol:"€",rate:.89}};
+const money=(n,c="INT")=>(C[c]?.symbol||"$")+(Number(n)||0).toLocaleString("en-GB",{minimumFractionDigits:2,maximumFractionDigits:2})+" "+(C[c]?.name||"International");
+const safe=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let client=null,accounts=[],transactions=[],action="deposit";
+function toast(s){const t=$("toast");t.textContent=s;t.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.remove("show"),3500)}
+function account(id){return accounts.find(a=>a.id===id)}
+function selected(){return account($("manageAccount").value)}
+function go(page){document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id==="page-"+page));document.querySelectorAll("[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===page));$("hero").style.display=page==="home"?"block":"none";window.scrollTo({top:0,behavior:"smooth"});if(page==="transactions")renderTransactions()}
+document.querySelectorAll("[data-page]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.page)));
+document.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.goto)));
+$("themeBtn").addEventListener("click",()=>{document.body.classList.toggle("light");$("themeBtn").textContent=document.body.classList.contains("light")?"☀":"☾"});
+function label(t){return ({deposit:"Deposit",withdrawal:"Withdrawal","transfer-in":"Transfer received","transfer-out":"Transfer sent",created:"Account opened",deleted:"Account deleted"}[t]||t)}
+async function load(){
+ const [ar,tr]=await Promise.all([client.from("bank_accounts").select("*").order("created_at",{ascending:false}),client.from("bank_transactions").select("*").order("created_at",{ascending:false}).limit(1000)]);
+ if(ar.error||tr.error){toast("Load error: "+(ar.error||tr.error).message);return}
+ accounts=ar.data.map(a=>({...a,name:a.account_name,owner:a.owner_name,balance:Number(a.balance)}));
+ transactions=tr.data.map(t=>({...t,date:t.created_at,accountId:t.account_id,accountName:t.account_name,type:t.transaction_type,balanceAfter:t.balance_after==null?null:Number(t.balance_after),amount:Number(t.amount)}));render()
+}
+function render(){
+ ["homeAccount","manageAccount","recipient","transactionAccount"].forEach(id=>{let el=$(id),old=el.value,ph=id==="transactionAccount"?"All accounts":id==="recipient"?"— Choose recipient —":"— Choose an account —";el.innerHTML="";let first=document.createElement("option");first.value="";first.textContent=ph;el.appendChild(first);accounts.forEach(a=>{let o=document.createElement("option");o.value=a.id;o.textContent=a.name+" — "+a.owner;el.appendChild(o)});if(accounts.some(a=>a.id===old))el.value=old});
+ $("statAccounts").textContent=accounts.length;$("statTransactions").textContent=transactions.length;
+ const list=$("accountList");list.innerHTML="";$("noAccounts").style.display=accounts.length?"none":"block";
+ accounts.forEach(a=>{let d=document.createElement("div");d.className="account-tile";d.innerHTML='<div><h3>'+safe(a.name)+'</h3><div class="muted">'+safe(a.owner)+'</div><div class="balance">'+money(a.balance,a.currency)+'</div></div><button class="btn secondary" data-select="'+safe(a.id)+'">Open</button> <button class="btn danger" data-delete="'+safe(a.id)+'">Delete</button>';list.appendChild(d)});
+ list.querySelectorAll("[data-select]").forEach(b=>b.onclick=()=>{$("manageAccount").value=b.dataset.select;update();go("manage")});
+ list.querySelectorAll("[data-delete]").forEach(b=>b.onclick=()=>del(b.dataset.delete));
+ update();renderTransactions()
+}
+function update(){let a=selected(),h=account($("homeAccount").value);$("manageName").textContent=a?a.name:"No account selected";$("manageOwner").textContent=a?"Owner: "+a.owner:"—";$("manageBalance").textContent=money(a?a.balance:0,a?a.currency:"INT");$("homeAccountName").textContent=h?h.name:"No account selected";$("homeOwner").textContent=h?h.owner:"Choose an account above";$("homeBalance").textContent=money(h?h.balance:0,h?h.currency:"INT");[...$("recipient").options].forEach(o=>o.disabled=!!a&&o.value===a.id)}
+$("homeAccount").onchange=update;$("manageAccount").onchange=update;
+document.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>{action=b.dataset.action;document.querySelectorAll("[data-action]").forEach(x=>x.classList.toggle("active",x===b));$("recipientField").hidden=action!=="transfer";$("fundSubmit").textContent=action==="deposit"?"＋ Add Funds":action==="withdraw"?"－ Remove Funds":"↔ Transfer Funds";$("fundSubmit").className="btn wide "+(action==="withdraw"?"danger":"primary")});
+async function create(name,owner,deposit,currency){deposit=Number(deposit);if(!name.trim()||!owner.trim()||!Number.isFinite(deposit)||deposit<0||deposit>1e9){toast("Enter valid account details.");return false}let {error}=await client.rpc("bank_create_account",{p_account_name:name.trim(),p_owner_name:owner.trim(),p_currency:currency,p_initial_deposit:deposit});if(error){toast("Create failed: "+error.message);return false}await load();toast("Shared account created!");return true}
+function attach(form,n,o,d,c){$(form).addEventListener("submit",async e=>{e.preventDefault();if(!client){toast("Add your Supabase URL and publishable key in this file first.");return}if(await create($(n).value,$(o).value,$(d).value,$(c).value)){e.target.reset();$(d).value="0.00";if(form==="createForm2")go("manage")}})}
+attach("createForm","newName","newOwner","newDeposit","newCurrency");attach("createForm2","newName2","newOwner2","newDeposit2","newCurrency2");
+$("fundForm").addEventListener("submit",async e=>{e.preventDefault();let a=selected(),amount=Number($("fundAmount").value),note=$("fundNote").value.trim();if(!a||!Number.isFinite(amount)||amount<=0||amount>1e9){toast("Choose an account and enter a valid amount.");return}let result;if(action==="transfer"){let to=account($("recipient").value);if(!to||to.id===a.id){toast("Choose a different recipient.");return}result=await client.rpc("bank_transfer",{p_from_account:a.id,p_to_account:to.id,p_amount:amount,p_note:note})}else result=await client.rpc("bank_adjust_balance",{p_account_id:a.id,p_action:action,p_amount:amount,p_note:note});if(result.error){toast("Transaction failed: "+result.error.message);return}await load();$("manageAccount").value=a.id;update();$("fundAmount").value="";$("fundNote").value="";toast("Transaction completed.")});
+async function del(id){let a=account(id);if(!a||!confirm('Delete "'+a.name+'"? The deletion will be recorded in the log.'))return;let {error}=await client.rpc("bank_delete_account",{p_account_id:id});if(error){toast("Delete failed: "+error.message);return}await load();toast("Account deleted; log retained")}
+function renderTransactions(){if(!$("transactionRows"))return;let aid=$("transactionAccount").value,type=$("transactionType").value,rows=transactions.filter(t=>(!aid||t.account_id===aid)&&(!type||t.type===type));$("transactionRows").innerHTML="";$("emptyTransactions").style.display=rows.length?"none":"block";rows.forEach(t=>{let tr=document.createElement("tr"),dt=new Date(t.date),cur=t.currency||"INT";tr.innerHTML="<td>"+safe(dt.toLocaleString("en-GB"))+"</td><td>"+safe(t.accountName)+"</td><td>"+safe(label(t.type))+"</td><td>"+safe(t.description)+"</td><td>"+(t.amount>0?"+":t.amount<0?"−":"")+money(Math.abs(t.amount),cur)+"</td><td>"+(t.balanceAfter==null?"—":money(t.balanceAfter,cur))+"</td>";$("transactionRows").appendChild(tr)})}
+$("transactionAccount").onchange=renderTransactions;$("transactionType").onchange=renderTransactions;
+$("exportBtn").onclick=()=>{let rows=[["Date & time","Account","Type","Description","Amount","Currency","Balance after"],...transactions.map(t=>[new Date(t.date).toLocaleString("en-GB"),t.accountName,label(t.type),t.description,t.amount,t.currency,t.balanceAfter??""])],csv=rows.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\r\n"),blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="international-bank-transactions.csv";a.click();URL.revokeObjectURL(url)};
+render();
+if(SUPABASE_URL.includes("PASTE_")||SUPABASE_PUBLISHABLE_KEY.includes("PASTE_"))toast("Setup needed: add your Supabase Project URL and publishable key in the script.");
+else if(window.supabase){client=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);load().then(()=>{client.channel("bank-live").on("postgres_changes",{event:"*",schema:"public",table:"bank_accounts"},load).on("postgres_changes",{event:"*",schema:"public",table:"bank_transactions"},load).subscribe()})}else toast("Could not load Supabase library; check internet connection.");
 })();
 </script>
 </body>
